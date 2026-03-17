@@ -1,22 +1,22 @@
-# 🏎️ F1 Analytics Dashboard
+#  F1 Analytics Dashboard
 
 A full-stack Formula 1 data analytics platform built with **FastAPI**, **Streamlit**, and **FastF1**. Provides race telemetry, live timing, strategy analysis, machine learning predictions, and university-level statistical analysis — all in an interactive web dashboard.
 
 ---
 
-## 📸 Features at a Glance
+##  Features at a Glance
 
 | Page | What it does |
 |---|---|
-| 🏁 **Race Data** | Lap times, position history, fastest laps |
-| 📡 **Telemetry** | Speed traces, track maps, multi-driver animation |
-| 🔴 **Live Timing** | Real-time leaderboard, pit stops, track status |
-| 📊 **Analytics** | Tyre strategy, degradation model, undercuts, ML predictor |
-| 📈 **Statistical Analysis** | MLE, ANOVA, regression, logistic regression, nonparametric tests |
+|  **Race Data** | Lap times, position history, fastest laps |
+|  **Telemetry** | Speed traces, track maps, multi-driver animation |
+|  **Live Timing** | Real-time leaderboard, pit stops, track status |
+|  **Analytics** | Tyre strategy, degradation model, undercuts, ML predictor |
+|  **Statistical Analysis** | MLE, ANOVA, regression, logistic regression, nonparametric tests |
 
 ---
 
-## 🛠️ Tech Stack
+##  Tech Stack
 
 - **Backend:** FastAPI + Uvicorn
 - **Frontend:** Streamlit
@@ -27,7 +27,7 @@ A full-stack Formula 1 data analytics platform built with **FastAPI**, **Streaml
 
 ---
 
-## ⚙️ Installation
+##  Installation
 
 ### Prerequisites
 - Python 3.10+
@@ -46,7 +46,7 @@ pip install -r requirements.txt
 
 ---
 
-## 🚀 Running the Application
+##  Running the Application
 
 You need **two terminal windows** open at the same time.
 
@@ -76,7 +76,7 @@ kill $(lsof -t -i:8000)      # Mac/Linux
 
 ---
 
-## 📦 Data & Caching
+##  Data & Caching
 
 Race data is loaded via the **FastF1** library from official F1 timing servers.
 
@@ -88,20 +88,20 @@ Race data is loaded via the **FastF1** library from official F1 timing servers.
 
 ---
 
-## 📋 Pages
+##  Pages
 
 ### 🏁 Race Data
 Complete race overview — lap times table, fastest laps per driver, and an interactive position history chart showing every position change lap by lap.
 
-### 📡 Telemetry
+###  Telemetry
 - **Speed Trace** — speed (km/h) across every meter of a lap
 - **Track Map** — GPS circuit layout colour-coded by speed
 - **Multi-Driver Animation** — real-time positional animation for multiple drivers across a lap range
 
-### 🔴 Live Timing
+###  Live Timing
 Real-time data during active F1 sessions via the OpenF1 API — leaderboard, pit stop feed, and track status (SC, VSC, Red Flag).
 
-### 📊 Analytics
+###  Analytics
 | Feature | Description |
 |---|---|
 | Tyre Stints | Compound, lap range, and stint length per driver |
@@ -115,7 +115,7 @@ Real-time data during active F1 sessions via the OpenF1 API — leaderboard, pit
 | Position Changes | Net grid-to-finish position changes per driver |
 | Race Predictor | XGBoost model trained on race data, predicts finishing order |
 
-### 📈 Statistical Analysis
+###  Statistical Analysis
 Covers 7 statistical units plus a novel Driver Consistency Index (DCI):
 
 | Unit | Feature |
@@ -130,7 +130,7 @@ Covers 7 statistical units plus a novel Driver Consistency Index (DCI):
 
 ---
 
-## 🤖 Race Outcome Predictor
+##  Race Outcome Predictor
 
 The XGBoost predictor must be trained once per race:
 
@@ -144,7 +144,7 @@ Features used: `grid_position`, `pace_gap_to_leader`, `num_pit_stops`, `compound
 
 ---
 
-## 📁 Project Structure
+##  Project Structure
 
 ```
 f1_dashboard/
@@ -184,7 +184,7 @@ f1_dashboard/
 
 ---
 
-## 🔌 API Documentation
+##  API Documentation
 
 All endpoints are documented at **http://localhost:8000/docs** (Swagger UI).
 
@@ -198,7 +198,7 @@ Key endpoint groups:
 
 ---
 
-## 📄 Documentation
+##  Documentation
 
 A full user guide is included: **`F1_Dashboard_Guide.docx`**
 
@@ -206,7 +206,7 @@ Covers every feature in detail with interpretation guides for all statistical ou
 
 ---
 
-## 🏆 Acknowledgements
+##  Acknowledgements
 
 - [FastF1](https://github.com/theOehrly/Fast-F1) — F1 timing data library
 - [OpenF1 API](https://openf1.org) — Live timing data
