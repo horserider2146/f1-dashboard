@@ -1,0 +1,23 @@
+{
+  "name": "f1_dashboard",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/horserider2146/f1-dashboard.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/horserider2146/f1-dashboard/issues"
+  },
+  "homepage": "https://github.com/horserider2146/f1-dashboard#readme",
+  "description": "",
+  "dependencies": {
+    "docx": "^9.6.1"
+  }
+}

@@ -1,0 +1,15 @@
+9fc6e2d89b99abf99e11f79638e201dc56b4f1b6 Initial commit: F1 Analytics Dashboard
+
+9acacd6d74ad6e428df69f37208b2863f0196097 Initial commit: F1 Analytics Dashboard
+
+Full-stack F1 data analytics platform with:
+- FastAPI backend (races, telemetry, analytics, live timing routers)
+- Streamlit multi-page dashboard
+- FastF1 + OpenF1 + Jolpica/Ergast data sources
+- Animated track map with multi-driver positions
+- Tyre strategy, degradation modelling, undercut detection
+- Race outcome ML predictor (Random Forest)
+- Docker Compose setup
+
+
+

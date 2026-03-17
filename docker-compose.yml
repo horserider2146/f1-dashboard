@@ -1,0 +1,42 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: f1_postgres
+    environment:
+      POSTGRES_USER: f1user
+      POSTGRES_PASSWORD: f1pass
+      POSTGRES_DB: f1_analytics
+    ports:
+      - "5432:5432"
+    volumes:
+      - f1_pgdata:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: f1_api
+    env_file: .env
+    depends_on:
+      - db
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./cache:/app/cache
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
+    container_name: f1_dashboard
+    env_file: .env
+    depends_on:
+      - api
+    ports:
+      - "8501:8501"
+
+volumes:
+  f1_pgdata:
