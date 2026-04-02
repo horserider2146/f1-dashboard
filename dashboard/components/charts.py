@@ -358,6 +358,25 @@ def speed_trace_chart(trace_data: list, driver: str) -> go.Figure:
             name="Throttle (%)", line=dict(color="#00D2BE", width=1.5),
             yaxis="y2"))
 
+    # Shade DRS active zones based on FastF1 open codes (10, 12, 14)
+    if "drs" in df.columns and "distance" in df.columns:
+        drs_series = pd.to_numeric(df["drs"], errors="coerce")
+        drs_active = drs_series.isin([10, 12, 14])
+        in_zone, zone_start = False, None
+        for dist, active in zip(df["distance"], drs_active):
+            if active and not in_zone:
+                zone_start = dist
+                in_zone = True
+            elif not active and in_zone:
+                fig.add_vrect(x0=zone_start, x1=dist,
+                              fillcolor="rgba(0, 210, 190, 0.2)", line_width=0,
+                              annotation_text="DRS", annotation_position="top left",
+                              annotation_font_size=9)
+                in_zone = False
+        if in_zone and zone_start is not None:
+            fig.add_vrect(x0=zone_start, x1=float(df["distance"].iloc[-1]),
+                          fillcolor="rgba(0, 210, 190, 0.2)", line_width=0)
+
     fig.update_layout(
         title=f"Speed Trace — {driver}",
         xaxis_title="Distance (m)",

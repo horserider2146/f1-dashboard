@@ -143,10 +143,32 @@ def lap_time_delta(lap_df: pd.DataFrame,
     """
     a = lap_df[lap_df["driver_id"] == driver_a][["lap_number", "lap_time_s"]].copy()
     b = lap_df[lap_df["driver_id"] == driver_b][["lap_number", "lap_time_s"]].copy()
+
+    if a.empty or b.empty:
+        return pd.DataFrame()
+
+    for frame in (a, b):
+        frame["lap_number"] = pd.to_numeric(frame["lap_number"], errors="coerce")
+        frame["lap_time_s"] = pd.to_numeric(frame["lap_time_s"], errors="coerce")
+
+    a = a.dropna(subset=["lap_number", "lap_time_s"])
+    b = b.dropna(subset=["lap_number", "lap_time_s"])
     merged = a.merge(b, on="lap_number", suffixes=("_a", "_b"))
+
+    if merged.empty:
+        return pd.DataFrame()
+
+    merged = merged[
+        np.isfinite(merged["lap_time_s_a"]) & np.isfinite(merged["lap_time_s_b"])
+    ].copy()
+
+    if merged.empty:
+        return pd.DataFrame()
+
+    merged["lap_number"] = merged["lap_number"].astype(int)
     merged["delta_s"] = (merged["lap_time_s_a"] - merged["lap_time_s_b"]).round(3)
     merged = merged.rename(columns={
         "lap_time_s_a": f"lap_time_{driver_a}",
         "lap_time_s_b": f"lap_time_{driver_b}",
     })
-    return merged.sort_values("lap_number")
+    return merged.sort_values("lap_number").reset_index(drop=True)

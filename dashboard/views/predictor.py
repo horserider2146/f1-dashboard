@@ -31,7 +31,7 @@ def render(year: int, gp: str):
         )
     with col2:
         train_btn = st.button("🏋️ Train Predictor", key="train_predictor_btn",
-                              use_container_width=True)
+                              width="stretch")
 
     if train_btn:
         with st.spinner("Training model..."):
@@ -69,11 +69,11 @@ def render(year: int, gp: str):
 
                     # Highlight podium
                     def highlight_podium(row):
-                        if row["predicted_position"] == 1:
+                        if row["Predicted Position"] == 1:
                             return ["background-color: #FFD700; color: black"] * len(row)
-                        elif row["predicted_position"] == 2:
+                        elif row["Predicted Position"] == 2:
                             return ["background-color: #C0C0C0; color: black"] * len(row)
-                        elif row["predicted_position"] == 3:
+                        elif row["Predicted Position"] == 3:
                             return ["background-color: #CD7F32; color: black"] * len(row)
                         return [""] * len(row)
 
@@ -85,7 +85,7 @@ def render(year: int, gp: str):
                         })
                         .style.apply(highlight_podium, axis=1)
                     )
-                    st.dataframe(styled, use_container_width=True)
+                    st.dataframe(styled, width="stretch")
 
                     # Podium card
                     top3 = pred_df.head(3)["driver_id"].tolist()

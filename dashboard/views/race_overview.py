@@ -101,7 +101,7 @@ def render(year: int, gp: str):
         else:
             load_label = "🗺️ Load Track Map & Animation"
 
-        if st.button(load_label, key="overview_map_btn", use_container_width=True):
+        if st.button(load_label, key="overview_map_btn", width="stretch"):
             if not sel_drivers:
                 st.warning("Select at least one driver.")
             else:
@@ -116,7 +116,7 @@ def render(year: int, gp: str):
 
                 if circuit_pts:
                     fig_outline = track_map(circuit_pts, title=f"{gp} {year} — Circuit Layout")
-                    st.plotly_chart(fig_outline, use_container_width=True)
+                    st.plotly_chart(fig_outline, width="stretch")
 
                 # Animation data
                 spinner_msg = {
@@ -138,7 +138,7 @@ def render(year: int, gp: str):
                                 fig_outline = track_map(
                                     circuit_pts, title=f"{gp} {year} — Circuit Layout"
                                 )
-                                st.plotly_chart(fig_outline, use_container_width=True)
+                                st.plotly_chart(fig_outline, width="stretch")
 
                             anim_label = (
                                 map_lap if view_mode == "Single Lap"
@@ -150,7 +150,7 @@ def render(year: int, gp: str):
                                 circuit_points=circuit_pts,
                                 speed_factor=speed_factor,
                             )
-                            st.plotly_chart(fig_anim, use_container_width=True)
+                            st.plotly_chart(fig_anim, width="stretch")
                             st.caption(
                                 f"▶ Playback at {speed_label}. "
                                 "Press play to watch drivers move around the circuit."
@@ -182,7 +182,7 @@ def render(year: int, gp: str):
                             "compound": "Compound",
                         }
                     ),
-                    use_container_width=True,
+                    width="stretch",
                 )
             else:
                 st.info("No fastest lap data available.")
@@ -208,7 +208,7 @@ def render(year: int, gp: str):
                 filtered = {d: pos_hist[d] for d in selected if d in pos_hist}
                 if filtered:
                     fig = position_change_chart(filtered)
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width="stretch")
             else:
                 st.info("Position data not available for this race.")
         except Exception as e:
@@ -232,7 +232,7 @@ def render(year: int, gp: str):
                            .rename(columns={"driver_id": "Driver",
                                             "overtakes": "Overtakes",
                                             "total_positions_gained": "Total Positions Gained"}))
-                st.dataframe(summary, use_container_width=True)
+                st.dataframe(summary, width="stretch")
             else:
                 st.info("No overtake data available.")
         except Exception as e:

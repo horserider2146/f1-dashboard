@@ -350,7 +350,12 @@ def wilcoxon(year: int, gp: str, driver_id: str):
         })
     result = wilcoxon_before_after_sc(laps, sc_laps, driver_id.upper())
     if "error" in result:
-        raise HTTPException(400, result["error"])
+        return _j({
+            "test": "Wilcoxon Signed-Rank",
+            "driver_id": driver_id.upper(),
+            "available": False,
+            "message": result["error"],
+        })
     result["available"] = True
     return _j(result)
 

@@ -28,7 +28,7 @@ def render(year: int, gp: str):
                                  "strategy": "Strategy",
                                  "num_stops": "Stops"}
                     ),
-                    use_container_width=True,
+                    width="stretch",
                 )
         except Exception as e:
             st.error(f"Could not load strategies: {e}")
@@ -42,7 +42,7 @@ def render(year: int, gp: str):
             stints = api.get_stints(year, gp)
             if stints:
                 fig = tyre_strategy_chart(stints)
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
             else:
                 st.info("No stint data available.")
         except Exception as e:
@@ -57,7 +57,7 @@ def render(year: int, gp: str):
             pit_stops = api.get_pit_stops(year, gp)
             if pit_stops:
                 fig = pit_stop_timeline(pit_stops)
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
 
                 # Table
                 with st.expander("Pit stop details"):
@@ -71,7 +71,7 @@ def render(year: int, gp: str):
                                 "stop_number": "Stop #",
                             }
                         ),
-                        use_container_width=True,
+                        width="stretch",
                     )
             else:
                 st.info("No pit stop data available.")
@@ -103,7 +103,7 @@ def render(year: int, gp: str):
                         "time_gain_s": "Time Gain (s)",
                         "success": "Success",
                     }),
-                    use_container_width=True,
+                    width="stretch",
                 )
             else:
                 st.info("No undercut attempts detected.")
@@ -141,7 +141,7 @@ def render(year: int, gp: str):
                 )
                 if preds:
                     fig = tyre_deg_chart(preds, pred_driver, pred_compound)
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width="stretch")
 
                     # Optimal pit window
                     pit_window = api._get(
@@ -179,7 +179,7 @@ def render(year: int, gp: str):
                         "deg_rate_s_per_lap": "Deg Rate (s/lap)",
                         "stint_count": "Drivers Used",
                     }),
-                    use_container_width=True,
+                    width="stretch",
                 )
         except Exception as e:
             st.error(f"Compound summary failed: {e}")

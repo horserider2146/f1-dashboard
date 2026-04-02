@@ -8,9 +8,7 @@ class Settings(BaseSettings):
     api_host: str = "0.0.0.0"
     api_port: int = 8000
     dashboard_port: int = 8501
-    openf1_base_url: str = "https://api.openf1.org/v1"
     ergast_base_url: str = "http://ergast.com/api/f1"
-    live_refresh_seconds: int = 5
 
     class Config:
         env_file = ".env"

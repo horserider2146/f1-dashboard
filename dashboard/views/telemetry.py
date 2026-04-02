@@ -1,15 +1,15 @@
 """
-Page 4 — Telemetry & Track Map
-Shows: speed trace, animated track map with multiple drivers.
+Page 4 — Telemetry
+Shows: speed trace and telemetry interpretation.
 """
 import streamlit as st
 import pandas as pd
 from dashboard import api_client as api
-from dashboard.components.charts import speed_trace_chart, track_map, track_animation
+from dashboard.components.charts import speed_trace_chart
 
 
 def render(year: int, gp: str):
-    st.header("📡 Car Telemetry & Track Map")
+    st.header("📡 Car Telemetry")
 
     # ── Load drivers ───────────────────────────────────────────────────────────
     try:
@@ -44,12 +44,13 @@ def render(year: int, gp: str):
             try:
                 trace = api.get_speed_trace(year, gp, trace_driver, trace_lap)
                 if trace:
+                    st.session_state["telem_trace"] = trace
                     fig = speed_trace_chart(trace, trace_driver)
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width="stretch")
 
                     # Show raw data
                     with st.expander("Raw telemetry data"):
-                        st.dataframe(pd.DataFrame(trace), use_container_width=True)
+                        st.dataframe(pd.DataFrame(trace), width="stretch")
                 else:
                     st.warning("No speed trace data available.")
             except Exception as e:
@@ -57,81 +58,25 @@ def render(year: int, gp: str):
 
     st.divider()
 
-    # ── Track map (circuit outline) ────────────────────────────────────────────
-    st.subheader("🗺️ Circuit Track Map")
-    col1, col2 = st.columns(2)
-    with col1:
-        map_driver = st.selectbox("Driver", drivers,
-                                  index=0, key="map_driver")
-    with col2:
-        map_lap = st.selectbox(
-            "Lap",
-            options=available_laps,
-            index=min(4, len(available_laps) - 1),
-            key="map_lap",
-        )
-
-    if st.button("Draw Track Map", key="track_map_btn"):
-        with st.spinner("Loading track coordinates..."):
-            try:
-                pts = api.get_track_map(year, gp, map_driver, map_lap)
-                if pts:
-                    fig = track_map(pts, title=f"{gp} {year} — Circuit Layout")
-                    st.plotly_chart(fig, use_container_width=True)
-                else:
-                    st.warning("No track coordinate data available.")
-            except Exception as e:
-                st.error(f"Track map failed: {e}")
-
-    st.divider()
-
-    # ── Multi-driver track animation ───────────────────────────────────────────
-    st.subheader("🎬 Live Track Animation (Multi-Driver)")
-    st.caption(
-        "Watch multiple drivers move around the circuit on the same lap. "
-        "Select up to 6 drivers for best performance."
-    )
-
-    selected_drivers = st.multiselect(
-        "Select drivers",
-        options=drivers,
-        default=drivers[:4],
-        max_selections=6,
-        key="anim_drivers",
-    )
-    anim_lap = st.selectbox(
-        "Lap",
-        options=available_laps,
-        index=min(19, len(available_laps) - 1),
-        key="anim_lap",
-    )
-
-    if st.button("Generate Animation", key="anim_btn"):
-        if not selected_drivers:
-            st.warning("Select at least one driver.")
-        else:
-            with st.spinner("Building track animation — this may take a moment..."):
-                try:
-                    driver_str = ",".join(selected_drivers)
-                    data = api.get_track_animation(year, gp, anim_lap, driver_str)
-                    if data:
-                        fig = track_animation(data, lap=anim_lap)
-                        st.plotly_chart(fig, use_container_width=True)
-                        st.caption(
-                            "Tip: Press ▶ on the animation slider to watch the cars move."
-                        )
-                    else:
-                        st.warning("No animation data returned. "
-                                   "Try a different lap or drivers.")
-                except Exception as e:
-                    st.error(f"Animation failed: {e}")
-
-    st.divider()
-
     # ── DRS info ───────────────────────────────────────────────────────────────
     st.subheader("📶 DRS Activation Info")
-    st.info(
-        "DRS (Drag Reduction System) data is embedded in telemetry. "
-        "Load a speed trace above — when the DRS column shows values 10–14, "
-        "the wing is open. Typically visible as speed spikes on straights."
-    )
+    _trace = st.session_state.get("telem_trace")
+    if _trace:
+        df_t = pd.DataFrame(_trace)
+        if "drs" in df_t.columns and "distance" in df_t.columns:
+            drs_series = pd.to_numeric(df_t["drs"], errors="coerce")
+            # FastF1 docs: actual open states are 10, 12 and 14
+            drs_on = df_t[drs_series.isin([10, 12, 14])]
+            total_dist = df_t["distance"].max() - df_t["distance"].min()
+            frac = len(drs_on) / max(len(df_t), 1)
+            drs_km = total_dist * frac / 1000
+
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Active Rows", f"{len(drs_on)}")
+            col2.metric("~DRS Distance", f"{drs_km:.2f} km")
+            col3.metric("% of Lap", f"{frac * 100:.1f}%")
+            st.caption("DRS zones highlighted in teal on the speed trace above.")
+        else:
+            st.info("No DRS data available in this telemetry package.")
+    else:
+        st.info("Load a speed trace above to view DRS activation data.")

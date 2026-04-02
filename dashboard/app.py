@@ -11,7 +11,6 @@ from dashboard.views import (
     lap_analysis,
     strategy,
     telemetry,
-    live_race,
     predictor,
     stats_analysis,
 )
@@ -46,12 +45,7 @@ st.markdown(
 
 # ── Sidebar — Race selector ────────────────────────────────────────────────────
 with st.sidebar:
-    st.image(
-        "https://upload.wikimedia.org/wikipedia/commons/thumb/3/33/F1.svg/"
-        "250px-F1.svg.png",
-        width=120,
-    )
-    st.title("F1 Analytics")
+    st.markdown("## 🏎️ F1 Analytics")
     st.markdown("---")
 
     # Season
@@ -91,8 +85,7 @@ with st.sidebar:
         "🏁 Race Overview":      "race_overview",
         "⏱️ Lap Analysis":       "lap_analysis",
         "🔧 Tyre Strategy":      "strategy",
-        "📡 Telemetry & Track":  "telemetry",
-        "🔴 Live Race":          "live_race",
+        "📡 Telemetry":          "telemetry",
         "🤖 Race Predictor":     "predictor",
         "📊 Statistical Analysis": "stats_analysis",
     }
@@ -102,7 +95,7 @@ with st.sidebar:
 
     st.markdown("---")
     st.caption(f"Selected: **{gp}** ({year})")
-    st.caption("Data: FastF1 · OpenF1 · Jolpica")
+    st.caption("Data: FastF1 · Jolpica")
 
 # ── Route to selected page ─────────────────────────────────────────────────────
 if page_key == "race_overview":
@@ -116,9 +109,6 @@ elif page_key == "strategy":
 
 elif page_key == "telemetry":
     telemetry.render(year, gp)
-
-elif page_key == "live_race":
-    live_race.render()
 
 elif page_key == "predictor":
     predictor.render(year, gp)

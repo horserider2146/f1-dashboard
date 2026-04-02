@@ -5,12 +5,12 @@ Run with:  uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routers import races, telemetry, live, analytics, stats
+from api.routers import races, telemetry, analytics, stats
 from database.connection import check_connection
 
 app = FastAPI(
     title="F1 Analytics API",
-    description="Formula 1 race data, telemetry, live timing and analytics.",
+    description="Formula 1 race data, telemetry and analytics.",
     version="1.0.0",
 )
 
@@ -26,7 +26,6 @@ app.add_middleware(
 # Register routers
 app.include_router(races.router)
 app.include_router(telemetry.router)
-app.include_router(live.router)
 app.include_router(analytics.router)
 app.include_router(stats.router)
 

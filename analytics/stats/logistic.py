@@ -110,6 +110,8 @@ def logistic_regression(laps: list[dict],
         cv_scores = cross_val_score(clf, X_scaled, y, cv=min(5, len(df_model)),
                                      scoring="roc_auc")
         cv_auc = float(cv_scores.mean())
+        if np.isnan(cv_auc):
+            cv_auc = auc
     except Exception:
         cv_auc = auc
 

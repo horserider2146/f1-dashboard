@@ -2,10 +2,12 @@
 Thin HTTP client used by the Streamlit dashboard to call the FastAPI backend.
 All methods return plain Python dicts / lists — no Pydantic on the dashboard side.
 """
+import os
 import requests
 from typing import Any, Optional
 
-BASE_URL = "http://localhost:8000"
+# Matches local FastAPI default from README, while still allowing deployment override.
+BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000").rstrip("/")
 
 # Analytics endpoints require FastF1 to load from disk on first call — allow more time.
 _DEFAULT_TIMEOUT = 90
@@ -24,20 +26,6 @@ def _post(path: str, json: dict | None = None) -> Any:
     resp = requests.post(url, json=json, timeout=_POST_TIMEOUT)
     resp.raise_for_status()
     return resp.json()
-
-
-def _resolve_session_key(session_key: Optional[str]) -> Optional[int]:
-    """Return an integer session key; fetches the latest session if none given."""
-    if session_key and str(session_key).strip():
-        try:
-            return int(str(session_key).strip())
-        except ValueError:
-            pass
-    try:
-        data = _get("/live/session/latest")
-        return data.get("session_key") if data else None
-    except Exception:
-        return None
 
 
 # ── Races ──────────────────────────────────────────────────────────────────────
@@ -87,33 +75,6 @@ def get_track_animation(year: int, gp: str, lap: int, drivers: str,
     resp = requests.get(url, params=params, timeout=300)
     resp.raise_for_status()
     return resp.json()
-
-
-# ── Live ───────────────────────────────────────────────────────────────────────
-
-def get_latest_session() -> dict:
-    return _get("/live/session/latest")
-
-
-def get_live_leaderboard(session_key: Optional[str] = None) -> list:
-    sk = _resolve_session_key(session_key)
-    if sk is None:
-        return []
-    return _get(f"/live/leaderboard/{sk}")
-
-
-def get_live_pit_stops(session_key: Optional[str] = None) -> list:
-    sk = _resolve_session_key(session_key)
-    if sk is None:
-        return []
-    return _get(f"/live/pit-stops/{sk}")
-
-
-def get_track_status(session_key: Optional[str] = None) -> list:
-    sk = _resolve_session_key(session_key)
-    if sk is None:
-        return []
-    return _get(f"/live/track-status/{sk}")
 
 
 # ── Analytics ──────────────────────────────────────────────────────────────────

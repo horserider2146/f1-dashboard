@@ -79,39 +79,6 @@ class TelemetryPoint(BaseModel):
     drs: Optional[int] = None
 
 
-# ── Live / OpenF1 ──────────────────────────────────────────────────────────────
-
-class LivePosition(BaseModel):
-    driver_number: int
-    position: int
-    date: Optional[str] = None
-
-
-class LiveLap(BaseModel):
-    driver_number: int
-    lap_number: int
-    lap_duration: Optional[float] = None
-    date_start: Optional[str] = None
-
-
-class LivePitStop(BaseModel):
-    driver_number: int
-    lap_number: int
-    pit_duration: Optional[float] = None
-    date: Optional[str] = None
-
-
-class LiveCarData(BaseModel):
-    driver_number: int
-    date: Optional[str] = None
-    speed: Optional[int] = None
-    rpm: Optional[int] = None
-    gear: Optional[int] = None
-    throttle: Optional[int] = None
-    brake: Optional[bool] = None
-    drs: Optional[int] = None
-
-
 # ── Analytics ──────────────────────────────────────────────────────────────────
 
 class TyreStint(BaseModel):

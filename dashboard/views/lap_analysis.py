@@ -30,7 +30,7 @@ def render(year: int, gp: str):
     )
     if selected_drivers:
         fig = lap_time_chart(laps, drivers=selected_drivers)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
     else:
         st.info("Select at least one driver above.")
 
@@ -51,7 +51,7 @@ def render(year: int, gp: str):
                 delta = api.get_lap_delta(year, gp, driver_a, driver_b)
                 if delta:
                     fig = lap_delta_chart(delta, driver_a, driver_b)
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width="stretch")
 
                     # Summary stats
                     df = pd.DataFrame(delta)
@@ -88,7 +88,7 @@ def render(year: int, gp: str):
                             "avg_lap_time": "Avg Lap Time (s)",
                             "median_lap_time": "Race Median (s)",
                         }),
-                        use_container_width=True,
+                        width="stretch",
                     )
                 else:
                     st.success("No Safety Car / VSC laps detected.")
@@ -104,4 +104,4 @@ def render(year: int, gp: str):
                                      key="raw_lap_filter")
         if driver_filter != "All":
             lap_df = lap_df[lap_df["driver_id"] == driver_filter]
-        st.dataframe(lap_df, use_container_width=True)
+        st.dataframe(lap_df, width="stretch")
