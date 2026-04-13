@@ -52,9 +52,10 @@ def _build_regression_df(laps: list[dict],
 
 def ols_regression(laps: list[dict],
                    pit_stops: list[dict],
-                   results: list[dict]) -> dict:
+                   results: list[dict],
+                   target: str = "position") -> dict:
     """
-    OLS: final_position ~ grid_pos + avg_pit_time + num_stops + avg_lap_time
+    OLS regression with selectable target.
     Returns coefficients, p-values, R², residuals, VIF, diagnostic tests.
     """
     try:
@@ -65,24 +66,33 @@ def ols_regression(laps: list[dict],
     except ImportError:
         return {"error": "statsmodels required for OLS regression."}
 
+    valid_targets = {"position", "avg_lap_time"}
+    if target not in valid_targets:
+        return {"error": f"Unsupported target '{target}'. Choose one of: {', '.join(sorted(valid_targets))}."}
+
     df = _build_regression_df(laps, pit_stops, results)
-    if df.empty or "position" not in df.columns:
+    if df.empty or target not in df.columns:
         return {"error": "Insufficient data for regression."}
 
-    feature_cols = [c for c in ["grid_position", "avg_pit_time", "num_stops", "avg_lap_time"]
-                    if c in df.columns]
+    candidate_features = ["grid_position", "avg_pit_time", "num_stops", "avg_lap_time", "position"]
+    feature_cols = [c for c in candidate_features if c in df.columns and c != target]
+    if not feature_cols:
+        return {"error": "No usable features available for regression."}
+
     # Drop features with >50% missing to avoid shrinking the sample
-    df_model = df[["position"] + feature_cols].copy()
+    df_model = df[[target] + feature_cols].copy()
     for col in feature_cols[:]:
         if df_model[col].isna().mean() > 0.5:
             feature_cols.remove(col)
-    df_model = df_model[["position"] + feature_cols].dropna()
+    if not feature_cols:
+        return {"error": "No usable features remain after missing-data filtering."}
+    df_model = df_model[[target] + feature_cols].dropna()
 
     if len(df_model) < max(3, len(feature_cols) + 1):
         return {"error": f"Not enough observations for regression (need {len(feature_cols)+1}, got {len(df_model)})."}
 
     X = sm.add_constant(df_model[feature_cols].astype(float))
-    y = df_model["position"].astype(float)
+    y = df_model[target].astype(float)
 
     model = sm.OLS(y, X).fit()
 
@@ -128,6 +138,8 @@ def ols_regression(laps: list[dict],
 
     return {
         "model": "OLS Multiple Regression",
+        "target": target,
+        "features": feature_cols,
         "n_obs": len(df_model),
         "r_squared": round(float(model.rsquared), 4),
         "adj_r_squared": round(float(model.rsquared_adj), 4),
@@ -146,9 +158,10 @@ def ols_regression(laps: list[dict],
 
 def lasso_ridge_regression(laps: list[dict],
                             pit_stops: list[dict],
-                            results: list[dict]) -> dict:
+                            results: list[dict],
+                            target: str = "position") -> dict:
     """
-    Ridge and Lasso regression — same features as OLS.
+    Ridge and Lasso regression with selectable target.
     Returns selected features (Lasso) and coefficient comparison table.
     """
     from sklearn.linear_model import Ridge, Lasso
@@ -156,22 +169,31 @@ def lasso_ridge_regression(laps: list[dict],
     from sklearn.model_selection import cross_val_score
     import numpy as np
 
+    valid_targets = {"position", "avg_lap_time"}
+    if target not in valid_targets:
+        return {"error": f"Unsupported target '{target}'. Choose one of: {', '.join(sorted(valid_targets))}."}
+
     df = _build_regression_df(laps, pit_stops, results)
-    if df.empty or "position" not in df.columns:
+    if df.empty or target not in df.columns:
         return {"error": "Insufficient data."}
 
-    feature_cols = [c for c in ["grid_position", "avg_pit_time", "num_stops", "avg_lap_time"]
-                    if c in df.columns]
-    df_model = df[["position"] + feature_cols].copy()
+    candidate_features = ["grid_position", "avg_pit_time", "num_stops", "avg_lap_time", "position"]
+    feature_cols = [c for c in candidate_features if c in df.columns and c != target]
+    if not feature_cols:
+        return {"error": "No usable features available for regression."}
+
+    df_model = df[[target] + feature_cols].copy()
     for col in feature_cols[:]:
         if df_model[col].isna().mean() > 0.5:
             feature_cols.remove(col)
-    df_model = df_model[["position"] + feature_cols].dropna()
+    if not feature_cols:
+        return {"error": "No usable features remain after missing-data filtering."}
+    df_model = df_model[[target] + feature_cols].dropna()
     if len(df_model) < max(3, len(feature_cols) + 1):
         return {"error": "Not enough data."}
 
     X = df_model[feature_cols].astype(float).values
-    y = df_model["position"].astype(float).values
+    y = df_model[target].astype(float).values
 
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
@@ -192,6 +214,8 @@ def lasso_ridge_regression(laps: list[dict],
 
     return {
         "model": "Ridge / Lasso Comparison",
+        "target": target,
+        "features": feature_cols,
         "n_obs": len(df_model),
         "ridge_r2": round(float(ridge.score(X_scaled, y)), 4),
         "lasso_r2": round(float(lasso.score(X_scaled, y)), 4),

@@ -68,40 +68,59 @@ def mle_lap_distribution(laps: list[dict], driver_id: str) -> dict:
 def bayesian_win_probability(laps: list[dict],
                               results: list[dict] | None = None) -> list[dict]:
     """
-    P(Win | grid_position) via Bayes' theorem.
+    P(Finish position | grid_position) via Bayes' theorem.
     Prior = uniform Dirichlet over grid slots.
-    Likelihood = empirical win counts per grid position from results.
+    Likelihood = empirical finish counts per grid position from results.
 
-    Returns list of {grid_pos, prior, likelihood, posterior} sorted by grid_pos.
+    Returns list of per-grid probabilities including separate posterior means for
+    finishing 1st, 2nd, and 3rd.
     """
     if not results:
         # Use lap data to approximate: driver with best mean lap time as proxy
         return []
 
     res_df = pd.DataFrame(results)
+    if "position" not in res_df.columns and "final_position" in res_df.columns:
+        res_df = res_df.rename(columns={"final_position": "position"})
     if "grid_position" not in res_df.columns or "position" not in res_df.columns:
         return []
 
     res_df = res_df.dropna(subset=["grid_position", "position"])
     res_df["grid_position"] = res_df["grid_position"].astype(int)
-    res_df["won"] = (res_df["position"] == 1).astype(int)
+    res_df["position"] = pd.to_numeric(res_df["position"], errors="coerce")
+    res_df = res_df.dropna(subset=["position"])
+    res_df["position"] = res_df["position"].astype(int)
+
+    res_df["p1"] = (res_df["position"] == 1).astype(int)
+    res_df["p2"] = (res_df["position"] == 2).astype(int)
+    res_df["p3"] = (res_df["position"] == 3).astype(int)
 
     grid_max = int(res_df["grid_position"].max())
     output = []
     for g in range(1, min(grid_max + 1, 21)):
         subset = res_df[res_df["grid_position"] == g]
         n_races = len(subset)
-        n_wins = int(subset["won"].sum())
-        # Beta-Binomial: prior Beta(1,1) (uniform), posterior Beta(1+wins, 1+losses)
-        alpha = 1 + n_wins
-        beta_param = 1 + (n_races - n_wins)
-        posterior_mean = alpha / (alpha + beta_param)
+        n_p1 = int(subset["p1"].sum())
+        n_p2 = int(subset["p2"].sum())
+        n_p3 = int(subset["p3"].sum())
+
+        # Beta-Binomial with Beta(1,1) prior for each finish-position event.
+        p1_posterior = (1 + n_p1) / (2 + n_races)
+        p2_posterior = (1 + n_p2) / (2 + n_races)
+        p3_posterior = (1 + n_p3) / (2 + n_races)
+
         output.append({
             "grid_pos": g,
             "n_races": n_races,
-            "n_wins": n_wins,
+            "n_wins": n_p1,
+            "n_p1": n_p1,
+            "n_p2": n_p2,
+            "n_p3": n_p3,
             "prior": round(1 / grid_max, 4),
-            "posterior": round(posterior_mean, 4),
+            "posterior": round(p1_posterior, 4),
+            "posterior_p1": round(p1_posterior, 4),
+            "posterior_p2": round(p2_posterior, 4),
+            "posterior_p3": round(p3_posterior, 4),
         })
 
     return output
@@ -111,14 +130,22 @@ def bayesian_win_probability(laps: list[dict],
 
 def two_sample_ttest(laps: list[dict],
                      driver_a: str,
-                     driver_b: str) -> dict:
+                     driver_b: str,
+                     alternative: str = "two-sided",
+                     alpha: float = 0.05) -> dict:
     """
-    Independent two-sample t-test on clean lap times for two drivers.
-    Returns t-stat, p-value, Cohen's d, and plain-English verdict.
+    Independent Welch two-sample t-test on clean lap times for two drivers.
+    Alternative is defined relative to driver_a mean lap time.
     """
     df = pd.DataFrame(laps)
     if df.empty:
         return {}
+
+    valid_alternatives = {"two-sided", "less", "greater"}
+    if alternative not in valid_alternatives:
+        return {"error": f"Unsupported alternative '{alternative}'."}
+    if not 0 < alpha < 1:
+        return {"error": "Alpha must be between 0 and 1."}
 
     def _clean_laps(drv_id):
         x = df[df["driver_id"] == drv_id]["lap_time_s"].dropna()
@@ -132,11 +159,42 @@ def two_sample_ttest(laps: list[dict],
     if len(a) < 3 or len(b) < 3:
         return {"error": "Not enough laps for one or both drivers."}
 
-    t_stat, p_value = sp.ttest_ind(a, b, equal_var=False)  # Welch's t-test
+    mean_a = float(a.mean())
+    mean_b = float(b.mean())
+    var_a = float(a.var(ddof=1))
+    var_b = float(b.var(ddof=1))
+    se_sq_a = var_a / len(a)
+    se_sq_b = var_b / len(b)
+    standard_error = np.sqrt(se_sq_a + se_sq_b)
+    if standard_error == 0:
+        return {"error": "Lap-time variation is zero; t-test is undefined."}
+
+    t_stat = (mean_a - mean_b) / standard_error
+    welch_df_num = (se_sq_a + se_sq_b) ** 2
+    welch_df_den = 0.0
+    if len(a) > 1:
+        welch_df_den += (se_sq_a ** 2) / (len(a) - 1)
+    if len(b) > 1:
+        welch_df_den += (se_sq_b ** 2) / (len(b) - 1)
+    welch_df = welch_df_num / welch_df_den if welch_df_den > 0 else max(1, len(a) + len(b) - 2)
+
+    if alternative == "two-sided":
+        p_value = 2 * sp.t.sf(abs(t_stat), df=welch_df)
+        null_hypothesis = f"{driver_a} and {driver_b} have equal mean lap time."
+        alternative_hypothesis = f"{driver_a} and {driver_b} have different mean lap times."
+    elif alternative == "less":
+        p_value = sp.t.cdf(t_stat, df=welch_df)
+        null_hypothesis = f"{driver_a} is not faster than {driver_b} (mean_A >= mean_B)."
+        alternative_hypothesis = f"{driver_a} is faster than {driver_b} (mean_A < mean_B)."
+    else:
+        p_value = sp.t.sf(t_stat, df=welch_df)
+        null_hypothesis = f"{driver_a} is not slower than {driver_b} (mean_A <= mean_B)."
+        alternative_hypothesis = f"{driver_a} is slower than {driver_b} (mean_A > mean_B)."
+    p_value = float(p_value)
 
     # Cohen's d
     pooled_std = np.sqrt((a.std() ** 2 + b.std() ** 2) / 2)
-    cohens_d = (a.mean() - b.mean()) / pooled_std if pooled_std > 0 else 0.0
+    cohens_d = (mean_a - mean_b) / pooled_std if pooled_std > 0 else 0.0
 
     # Plain-English effect size
     if abs(cohens_d) < 0.2:
@@ -148,26 +206,39 @@ def two_sample_ttest(laps: list[dict],
     else:
         effect = "large"
 
-    faster = driver_a if a.mean() < b.mean() else driver_b
-    significant = p_value < 0.05
+    faster = driver_a if mean_a < mean_b else driver_b
+    significant = p_value < alpha
+
+    if alternative == "two-sided":
+        outcome_text = "different mean lap times"
+    elif alternative == "less":
+        outcome_text = f"{driver_a} has a lower mean lap time than {driver_b}"
+    else:
+        outcome_text = f"{driver_a} has a higher mean lap time than {driver_b}"
 
     verdict = (
-        f"{'Significant' if significant else 'No significant'} difference "
-        f"(p={'< 0.001' if p_value < 0.001 else f'{p_value:.4f}'}, α=0.05). "
+        f"{'Significant' if significant else 'No significant'} evidence that {outcome_text} "
+        f"(p={'< 0.001' if p_value < 0.001 else f'{p_value:.4f}'}, α={alpha:.2f}). "
         f"Effect size: {effect} (d={cohens_d:.3f}). "
+        f"Observed averages: {driver_a}={mean_a:.3f}s, {driver_b}={mean_b:.3f}s; "
         f"{faster} is faster on average."
     )
 
     return {
         "driver_a": driver_a,
         "driver_b": driver_b,
+        "alpha": round(float(alpha), 4),
+        "alternative": alternative,
+        "null_hypothesis": null_hypothesis,
+        "alternative_hypothesis": alternative_hypothesis,
         "n_a": len(a),
         "n_b": len(b),
-        "mean_a": round(float(a.mean()), 4),
-        "mean_b": round(float(b.mean()), 4),
+        "mean_a": round(mean_a, 4),
+        "mean_b": round(mean_b, 4),
         "std_a": round(float(a.std()), 4),
         "std_b": round(float(b.std()), 4),
         "t_statistic": round(float(t_stat), 4),
+        "degrees_of_freedom": round(float(welch_df), 4),
         "p_value": round(float(p_value), 6),
         "cohens_d": round(float(cohens_d), 4),
         "effect_size": effect,
@@ -180,14 +251,20 @@ def two_sample_ttest(laps: list[dict],
 
 def z_test_pit_stop_time(pit_stops: list[dict],
                           driver_id: str,
-                          population_mean: float | None = None) -> dict:
+                          population_mean: float | None = None,
+                          alternative: str = "two-sided",
+                          alpha: float = 0.05) -> dict:
     """
-    One-sample z-test: is this driver's mean pit stop time different from
-    the field average?
+    One-sample z-test comparing a driver's mean pit stop time to the field.
     """
     df = pd.DataFrame(pit_stops)
     if df.empty or "pit_duration" not in df.columns:
         return {}
+    valid_alternatives = {"two-sided", "less", "greater"}
+    if alternative not in valid_alternatives:
+        return {"error": f"Unsupported alternative '{alternative}'."}
+    if not 0 < alpha < 1:
+        return {"error": "Alpha must be between 0 and 1."}
 
     all_times = df["pit_duration"].dropna()
     drv_times = df[df["driver_id"] == driver_id]["pit_duration"].dropna()
@@ -197,20 +274,47 @@ def z_test_pit_stop_time(pit_stops: list[dict],
 
     pop_mean = population_mean or float(all_times.mean())
     pop_std = float(all_times.std())
+    if pop_std <= 0 or np.isnan(pop_std):
+        return {"error": "Field pit-stop variation is zero; z-test is undefined."}
 
-    z = (drv_times.mean() - pop_mean) / (pop_std / np.sqrt(len(drv_times)))
-    p = 2 * sp.norm.sf(abs(z))
+    driver_mean = float(drv_times.mean())
+
+    z = (driver_mean - pop_mean) / (pop_std / np.sqrt(len(drv_times)))
+    if alternative == "two-sided":
+        p = 2 * sp.norm.sf(abs(z))
+        null_hypothesis = f"{driver_id} has the same mean pit-stop time as the field."
+        alternative_hypothesis = f"{driver_id} has a different mean pit-stop time from the field."
+    elif alternative == "less":
+        p = sp.norm.cdf(z)
+        null_hypothesis = f"{driver_id} is not quicker than the field in pit stops (mean_driver >= mean_field)."
+        alternative_hypothesis = f"{driver_id} is quicker than the field in pit stops (mean_driver < mean_field)."
+    else:
+        p = sp.norm.sf(z)
+        null_hypothesis = f"{driver_id} is not slower than the field in pit stops (mean_driver <= mean_field)."
+        alternative_hypothesis = f"{driver_id} is slower than the field in pit stops (mean_driver > mean_field)."
+
+    significant = bool(p < alpha)
+    if alternative == "two-sided":
+        outcome_text = "a different mean pit-stop time from the field"
+    elif alternative == "less":
+        outcome_text = "a lower mean pit-stop time than the field"
+    else:
+        outcome_text = "a higher mean pit-stop time than the field"
 
     return {
         "driver_id": driver_id,
+        "alpha": round(float(alpha), 4),
+        "alternative": alternative,
+        "null_hypothesis": null_hypothesis,
+        "alternative_hypothesis": alternative_hypothesis,
         "n_stops": len(drv_times),
-        "driver_mean": round(float(drv_times.mean()), 3),
+        "driver_mean": round(driver_mean, 3),
         "field_mean": round(pop_mean, 3),
         "z_statistic": round(float(z), 4),
         "p_value": round(float(p), 6),
-        "significant": bool(p < 0.05),
+        "significant": significant,
         "verdict": (
-            f"{'Significant' if p < 0.05 else 'No significant'} difference from "
-            f"field average (z={z:.3f}, p={p:.4f})"
+            f"{'Significant' if significant else 'No significant'} evidence that {driver_id} has {outcome_text} "
+            f"(z={z:.3f}, p={'< 0.001' if p < 0.001 else f'{p:.4f}'}, α={alpha:.2f})"
         ),
     }

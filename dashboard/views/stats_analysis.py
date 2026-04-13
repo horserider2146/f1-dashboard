@@ -113,10 +113,17 @@ def _chi_square_goodness_of_fit(series: pd.Series) -> dict | None:
     }
 
 
-def _one_sample_ttest(laps_df: pd.DataFrame, driver_id: str) -> dict | None:
+def _one_sample_ttest(laps_df: pd.DataFrame,
+                      driver_id: str,
+                      alternative: str = "two-sided",
+                      alpha: float = 0.05) -> dict | None:
     if laps_df.empty:
         return None
     if "driver_id" not in laps_df.columns or "lap_time_s" not in laps_df.columns:
+        return None
+    if alternative not in {"two-sided", "less", "greater"}:
+        return None
+    if not 0 < alpha < 1:
         return None
 
     all_laps = _clean_lap_series(laps_df["lap_time_s"])
@@ -128,15 +135,53 @@ def _one_sample_ttest(laps_df: pd.DataFrame, driver_id: str) -> dict | None:
         return None
 
     pop_mean = float(all_laps.mean())
-    t_stat, p_value = sp.ttest_1samp(drv_laps, popmean=pop_mean)
+    driver_mean = float(drv_laps.mean())
+    sample_std = float(drv_laps.std(ddof=1))
+    if sample_std <= 0 or np.isnan(sample_std):
+        return None
+
+    standard_error = sample_std / np.sqrt(len(drv_laps))
+    t_stat = (driver_mean - pop_mean) / standard_error
+    degrees_of_freedom = len(drv_laps) - 1
+
+    if alternative == "two-sided":
+        p_value = 2 * sp.t.sf(abs(t_stat), df=degrees_of_freedom)
+        null_hypothesis = f"{driver_id} has the same mean lap time as the field."
+        alternative_hypothesis = f"{driver_id} has a different mean lap time from the field."
+    elif alternative == "less":
+        p_value = sp.t.cdf(t_stat, df=degrees_of_freedom)
+        null_hypothesis = f"{driver_id} is not faster than the field (mean_driver >= mean_field)."
+        alternative_hypothesis = f"{driver_id} is faster than the field (mean_driver < mean_field)."
+    else:
+        p_value = sp.t.sf(t_stat, df=degrees_of_freedom)
+        null_hypothesis = f"{driver_id} is not slower than the field (mean_driver <= mean_field)."
+        alternative_hypothesis = f"{driver_id} is slower than the field (mean_driver > mean_field)."
+
+    significant = bool(p_value < alpha)
+    if alternative == "two-sided":
+        outcome_text = "a different mean lap time from the field"
+    elif alternative == "less":
+        outcome_text = "a lower mean lap time than the field"
+    else:
+        outcome_text = "a higher mean lap time than the field"
 
     return {
-        "driver_mean": float(drv_laps.mean()),
+        "driver_id": driver_id,
+        "alpha": float(alpha),
+        "alternative": alternative,
+        "null_hypothesis": null_hypothesis,
+        "alternative_hypothesis": alternative_hypothesis,
+        "driver_mean": driver_mean,
         "overall_mean": pop_mean,
         "t_stat": float(t_stat),
+        "degrees_of_freedom": float(degrees_of_freedom),
         "p_value": float(p_value),
         "n": int(len(drv_laps)),
-        "significant": bool(p_value < 0.05),
+        "significant": significant,
+        "verdict": (
+            f"{'Significant' if significant else 'No significant'} evidence that {driver_id} has {outcome_text} "
+            f"(p={'< 0.001' if p_value < 0.001 else f'{p_value:.4f}'}, α={alpha:.2f})."
+        ),
     }
 
 
@@ -511,6 +556,26 @@ def render(year: int, gp: str):
     if "team" not in laps_df.columns and not drivers_df.empty and {"driver_id", "team"}.issubset(drivers_df.columns):
         laps_df = laps_df.merge(drivers_df[["driver_id", "team"]], on="driver_id", how="left")
 
+    st.subheader("Dataset preview")
+    n_rows, n_cols = laps_df.shape
+    st.caption(f"Data shape: {n_rows} rows x {n_cols} columns")
+    st.caption("All columns: " + ", ".join(map(str, laps_df.columns.tolist())))
+
+    compact_preview = st.checkbox(
+        "Compact preview (show key columns only)",
+        value=False,
+        key="flow_dataset_compact_preview",
+    )
+    preview_cols = [
+        col for col in ["driver_id", "lap_number", "lap_time_s", "position", "team"]
+        if col in laps_df.columns
+    ]
+    if compact_preview and preview_cols:
+        preview_df = laps_df[preview_cols].head(10)
+    else:
+        preview_df = laps_df.head(10)
+    st.dataframe(preview_df, width="stretch", hide_index=True)
+
     driver_ids = sorted(laps_df["driver_id"].dropna().unique().tolist()) if "driver_id" in laps_df.columns else []
     if not driver_ids:
         st.error("No drivers found in race data.")
@@ -651,32 +716,109 @@ def render(year: int, gp: str):
                 f"Estimated sampling SE = {sim['std_error']:.4f}s from {len(sim['means'])} resamples."
             )
 
+    bayes_scope = st.radio(
+        "Bayesian data scope",
+        options=["Selected race", "Season pooled"],
+        key="flow_bayes_scope",
+        horizontal=True,
+    )
+    show_bayes_detail = st.checkbox(
+        "Show start-grid breakdown",
+        value=False,
+        key="flow_bayes_show_detail",
+    )
+
     if st.button("Update prior to posterior (Bayesian)", key="flow_bayes_btn"):
         with st.spinner("Computing posterior probabilities..."):
             try:
-                bayes_data = api._get(f"/stats/{year}/{gp}/bayes-win")
-                if bayes_data:
-                    bayes_df = pd.DataFrame(bayes_data)
-                    fig = px.bar(
-                        bayes_df,
-                        x="grid_pos",
-                        y="posterior",
-                        title="Posterior P(win | grid position)",
-                        labels={"grid_pos": "Grid", "posterior": "Posterior probability"},
-                        color="posterior",
-                        color_continuous_scale="Reds",
-                        template="plotly_dark",
-                    )
-                    fig.add_scatter(
-                        x=bayes_df["grid_pos"],
-                        y=bayes_df["prior"],
-                        mode="lines",
-                        name="Prior",
-                        line=dict(color="white", dash="dash"),
-                    )
-                    st.plotly_chart(fig, width="stretch")
-                else:
+                endpoint = "/bayes-win" if bayes_scope == "Selected race" else "/bayes-win-season"
+                bayes_data = api._get(f"/stats/{year}/{gp}{endpoint}")
+                if not bayes_data:
                     st.info("No historical race results available for Bayesian update.")
+                else:
+                    bayes_df = pd.DataFrame(bayes_data)
+
+                    if all(c in bayes_df.columns for c in ["n_p1", "n_p2", "n_p3"]):
+                        total_p1 = float(bayes_df["n_p1"].sum())
+                        total_p2 = float(bayes_df["n_p2"].sum())
+                        total_p3 = float(bayes_df["n_p3"].sum())
+                        # Dirichlet(1,1,1) posterior over top-3 classes: class 0/1/2.
+                        denom = total_p1 + total_p2 + total_p3 + 3.0
+                        class_df = pd.DataFrame({
+                            "class_idx": [0, 1, 2],
+                            "finish_label": ["Finish 1st", "Finish 2nd", "Finish 3rd"],
+                            "posterior": [
+                                (total_p1 + 1.0) / denom,
+                                (total_p2 + 1.0) / denom,
+                                (total_p3 + 1.0) / denom,
+                            ],
+                        })
+                        scope_suffix = "" if bayes_scope == "Selected race" else f", pooled across {year}"
+                        class_fig = px.bar(
+                            class_df,
+                            x="class_idx",
+                            y="posterior",
+                            color="finish_label",
+                            title=f"Top-3 class posterior (0=1st, 1=2nd, 2=3rd){scope_suffix}",
+                            labels={"class_idx": "Class index", "posterior": "Posterior probability"},
+                            template="plotly_dark",
+                        )
+                        class_fig.update_xaxes(type="category")
+                        st.plotly_chart(class_fig, width="stretch")
+
+                    if show_bayes_detail:
+                        detail_df = bayes_df.copy()
+                        for c in ["posterior_p1", "posterior_p2", "posterior_p3"]:
+                            if c not in detail_df.columns:
+                                detail_df[c] = np.nan
+                        detail_long = detail_df.melt(
+                            id_vars=["grid_pos"],
+                            value_vars=["posterior_p1", "posterior_p2", "posterior_p3"],
+                            var_name="finish",
+                            value_name="posterior_value",
+                        )
+                        finish_map = {
+                            "posterior_p1": "Finish 1st",
+                            "posterior_p2": "Finish 2nd",
+                            "posterior_p3": "Finish 3rd",
+                        }
+                        detail_long["finish"] = detail_long["finish"].map(finish_map)
+                        detail_long["grid_pos"] = pd.to_numeric(detail_long["grid_pos"], errors="coerce")
+                        detail_long = detail_long.dropna(subset=["grid_pos"])
+                        detail_long["grid_pos"] = detail_long["grid_pos"].astype(int)
+                        finish_order = ["Finish 1st", "Finish 2nd", "Finish 3rd"]
+                        detail_long["grid_label"] = detail_long["grid_pos"].astype(str)
+                        detail_long["finish_order"] = detail_long["finish"].map(
+                            {"Finish 1st": 0, "Finish 2nd": 1, "Finish 3rd": 2}
+                        )
+                        detail_long = detail_long.sort_values(["finish_order", "grid_pos"])
+                        detail_long["sequence_label"] = (
+                            detail_long["finish"] + " | Grid " + detail_long["grid_label"]
+                        )
+                        sequence_order = detail_long["sequence_label"].tolist()
+                        detail_title = (
+                            "Posterior by start grid and finish class"
+                            if bayes_scope == "Selected race"
+                            else f"Season-pooled posterior by start grid and finish class ({year})"
+                        )
+                        detail_fig = px.bar(
+                            detail_long,
+                            x="sequence_label",
+                            y="posterior_value",
+                            color="finish",
+                            barmode="relative",
+                            title=detail_title,
+                            labels={"sequence_label": "Finish and start-grid sequence", "posterior_value": "Posterior probability"},
+                            category_orders={"sequence_label": sequence_order, "finish": finish_order},
+                            template="plotly_dark",
+                        )
+                        detail_fig.update_layout(showlegend=True)
+                        detail_fig.update_xaxes(tickangle=-45)
+                        st.plotly_chart(detail_fig, width="stretch")
+
+                    st.caption(
+                        "Primary output is the 0/1/2 class chart. The detailed chart is ordered finish-first: all Finish 1st bars, then Finish 2nd, then Finish 3rd."
+                    )
             except Exception as e:
                 st.error(f"Bayesian analysis failed: {e}")
 
@@ -698,12 +840,29 @@ def render(year: int, gp: str):
         candidates_b = [d for d in driver_ids if d != driver_a]
         driver_b = st.selectbox("Driver B", candidates_b, key="flow_t_b")
 
+    ttest_alternative = st.radio(
+        "Alternative hypothesis",
+        options=["two-sided", "less", "greater"],
+        format_func=lambda x: {
+            "two-sided": "Drivers have different mean lap times",
+            "less": f"{driver_a} is faster than {driver_b}",
+            "greater": f"{driver_a} is slower than {driver_b}",
+        }[x],
+        horizontal=True,
+        key="flow_ttest_alternative",
+    )
+
     if st.button("Run two-sample t-test", key="flow_ttest_btn"):
         with st.spinner("Running two-sample test..."):
             try:
                 t_res = api._get(
                     f"/stats/{year}/{gp}/ttest",
-                    params={"driver_a": driver_a, "driver_b": driver_b},
+                    params={
+                        "driver_a": driver_a,
+                        "driver_b": driver_b,
+                        "alternative": ttest_alternative,
+                        "alpha": alpha,
+                    },
                 )
 
                 m1, m2, m3, m4 = st.columns(4)
@@ -716,18 +875,29 @@ def render(year: int, gp: str):
                 m5.metric("Cohen's d", f"{t_res['cohens_d']:.3f}")
                 m6.metric("Effect", t_res["effect_size"])
 
+                st.caption(
+                    f"H0: {t_res['null_hypothesis']} H1: {t_res['alternative_hypothesis']}"
+                )
+
                 st.success(t_res["verdict"]) if t_res["significant"] else st.info(t_res["verdict"])
 
                 # Rejection region visualization (frequentist decision boundary)
-                dfree = max(1, t_res["n_a"] + t_res["n_b"] - 2)
+                dfree = max(1.0, float(t_res.get("degrees_of_freedom", 1.0)))
                 x_vals = np.linspace(-4.5, 4.5, 500)
                 y_vals = sp.t.pdf(x_vals, df=dfree)
-                crit = sp.t.ppf(1 - alpha / 2, df=dfree)
 
                 fig = go.Figure()
                 fig.add_trace(go.Scatter(x=x_vals, y=y_vals, mode="lines", name="t distribution"))
-                fig.add_vline(x=crit, line_dash="dash", line_color="orange", annotation_text="+critical")
-                fig.add_vline(x=-crit, line_dash="dash", line_color="orange", annotation_text="-critical")
+                if t_res["alternative"] == "two-sided":
+                    crit = sp.t.ppf(1 - alpha / 2, df=dfree)
+                    fig.add_vline(x=crit, line_dash="dash", line_color="orange", annotation_text="+critical")
+                    fig.add_vline(x=-crit, line_dash="dash", line_color="orange", annotation_text="-critical")
+                elif t_res["alternative"] == "less":
+                    crit = sp.t.ppf(alpha, df=dfree)
+                    fig.add_vline(x=crit, line_dash="dash", line_color="orange", annotation_text="critical")
+                else:
+                    crit = sp.t.ppf(1 - alpha, df=dfree)
+                    fig.add_vline(x=crit, line_dash="dash", line_color="orange", annotation_text="critical")
                 fig.add_vline(
                     x=t_res["t_statistic"],
                     line_dash="solid",
@@ -744,7 +914,7 @@ def render(year: int, gp: str):
 
                 # Approximate Type II error using normal approximation to power
                 n_eff = (t_res["n_a"] * t_res["n_b"]) / (t_res["n_a"] + t_res["n_b"])
-                z_alpha = sp.norm.ppf(1 - alpha / 2)
+                z_alpha = sp.norm.ppf(1 - (alpha / 2 if t_res["alternative"] == "two-sided" else alpha))
                 effect = abs(t_res["cohens_d"])
                 approx_power = float(np.clip(sp.norm.cdf(effect * np.sqrt(n_eff) - z_alpha), 0, 1))
                 beta = 1 - approx_power
@@ -758,8 +928,24 @@ def render(year: int, gp: str):
     one_sample_driver = st.selectbox("Driver for one-sample mean test",
                                      driver_ids,
                                      key="flow_one_sample_driver")
+    one_sample_alternative = st.radio(
+        "One-sample alternative hypothesis",
+        options=["two-sided", "less", "greater"],
+        format_func=lambda x: {
+            "two-sided": f"{one_sample_driver} differs from the field mean",
+            "less": f"{one_sample_driver} is faster than the field",
+            "greater": f"{one_sample_driver} is slower than the field",
+        }[x],
+        horizontal=True,
+        key="flow_one_sample_alternative",
+    )
     if st.button("Run one-sample t-test vs field mean", key="flow_one_sample_btn"):
-        one_sample = _one_sample_ttest(laps_df, one_sample_driver)
+        one_sample = _one_sample_ttest(
+            laps_df,
+            one_sample_driver,
+            alternative=one_sample_alternative,
+            alpha=alpha,
+        )
         if not one_sample:
             st.warning("Not enough data for one-sample test.")
         else:
@@ -768,17 +954,31 @@ def render(year: int, gp: str):
             m2.metric("Field mean", f"{one_sample['overall_mean']:.3f}s")
             m3.metric("t-statistic", f"{one_sample['t_stat']:.3f}")
             m4.metric("p-value", f"{one_sample['p_value']:.5f}")
-            if one_sample["significant"]:
-                st.success("Driver mean is significantly different from overall mean.")
-            else:
-                st.info("No significant difference from overall mean.")
+            st.caption(
+                f"H0: {one_sample['null_hypothesis']} H1: {one_sample['alternative_hypothesis']}"
+            )
+            st.success(one_sample["verdict"]) if one_sample["significant"] else st.info(one_sample["verdict"])
 
     z_driver = st.selectbox("Driver for large-sample z-test", driver_ids,
                             key="flow_z_driver")
+    z_alternative = st.radio(
+        "Z-test alternative hypothesis",
+        options=["two-sided", "less", "greater"],
+        format_func=lambda x: {
+            "two-sided": f"{z_driver} differs from the field pit-stop mean",
+            "less": f"{z_driver} has quicker pit stops than the field",
+            "greater": f"{z_driver} has slower pit stops than the field",
+        }[x],
+        horizontal=True,
+        key="flow_z_alternative",
+    )
     if st.button("Run pit-stop z-test", key="flow_z_btn"):
         with st.spinner("Running z-test..."):
             try:
-                z_res = api._get(f"/stats/{year}/{gp}/ztest/{z_driver}")
+                z_res = api._get(
+                    f"/stats/{year}/{gp}/ztest/{z_driver}",
+                    params={"alternative": z_alternative, "alpha": alpha},
+                )
                 if not z_res.get("available", True):
                     st.info(z_res.get("message", "Pit-stop duration data unavailable."))
                 else:
@@ -787,6 +987,9 @@ def render(year: int, gp: str):
                     m2.metric("Field mean pit", f"{z_res['field_mean']:.3f}s")
                     m3.metric("z-statistic", f"{z_res['z_statistic']:.3f}")
                     m4.metric("p-value", f"{z_res['p_value']:.5f}")
+                    st.caption(
+                        f"H0: {z_res['null_hypothesis']} H1: {z_res['alternative_hypothesis']}"
+                    )
                     st.success(z_res["verdict"]) if z_res["significant"] else st.info(z_res["verdict"])
             except Exception as e:
                 st.error(f"Z-test failed: {e}")
@@ -924,16 +1127,41 @@ def render(year: int, gp: str):
     st.subheader("4) Build regression explanations and diagnose assumptions")
     st.caption("Applied topics: simple/multiple/multivariate regression framing, least squares, residual analysis, model assumptions, dummy-variable regression, autocorrelation, heteroskedasticity, specification diagnostics, and transformations.")
 
+    regression_target = st.radio(
+        "Regression target",
+        options=["position", "avg_lap_time"],
+        format_func=lambda x: "Finish position" if x == "position" else "Average lap time",
+        horizontal=True,
+        key="flow_regression_target",
+    )
+
+    if regression_target == "position":
+        st.info(
+            "This is primarily an explanatory model: it relates race outcome to grid and in-race variables. Because finish position is ordinal and some predictors are observed during the race, interpret coefficients as descriptive relationships rather than pure pre-race forecasts."
+        )
+    else:
+        st.info(
+            "This target focuses on pace rather than finishing result. It is still explanatory for the selected race sample, but it is closer to a performance model because average lap time is a direct measure of speed."
+        )
+
     if st.button("Run OLS model with diagnostics", key="flow_ols_btn"):
         with st.spinner("Fitting OLS model..."):
             try:
-                ols = api._get(f"/stats/{year}/{gp}/regression/ols")
+                ols = api._get(
+                    f"/stats/{year}/{gp}/regression/ols",
+                    params={"target": regression_target},
+                )
 
                 m1, m2, m3, m4 = st.columns(4)
                 m1.metric("R2", ols["r_squared"])
                 m2.metric("Adj R2", ols["adj_r_squared"])
                 m3.metric("F-stat", ols["f_statistic"])
                 m4.metric("Durbin-Watson", ols["durbin_watson"])
+
+                st.caption(
+                    f"Target: {ols.get('target', regression_target)} | "
+                    f"Features: {', '.join(ols.get('features', [])) if ols.get('features') else 'none'}"
+                )
 
                 if ols.get("breusch_pagan"):
                     bp = ols["breusch_pagan"]
@@ -1137,10 +1365,17 @@ def render(year: int, gp: str):
     if st.button("Run ridge and lasso", key="flow_ridge_lasso_btn"):
         with st.spinner("Fitting regularized regressions..."):
             try:
-                rl = api._get(f"/stats/{year}/{gp}/regression/regularised")
+                rl = api._get(
+                    f"/stats/{year}/{gp}/regression/regularised",
+                    params={"target": regression_target},
+                )
                 m1, m2 = st.columns(2)
                 m1.metric("Ridge R2", rl["ridge_r2"])
                 m2.metric("Lasso R2", rl["lasso_r2"])
+                st.caption(
+                    f"Target: {rl.get('target', regression_target)} | "
+                    f"Features: {', '.join(rl.get('features', [])) if rl.get('features') else 'none'}"
+                )
                 st.caption(
                     "Lasso selected features: "
                     f"{', '.join(rl['lasso_selected_features']) if rl['lasso_selected_features'] else 'none'}"
@@ -1204,7 +1439,7 @@ def render(year: int, gp: str):
     # Step 6
     # ------------------------------------------------------------------
     st.subheader("6) Predict outcomes and evaluate decision risk")
-    st.caption("Applied topics: logistic regression, binary outcomes, multiple logistic features, model comparison, and count outcomes via Poisson regression.")
+    st.caption("Applied topics: logistic regression, binary outcomes, multiple numeric predictors, model comparison, and count outcomes via Poisson regression.")
 
     if st.button("Run logistic regression (podium probability)", key="flow_logistic_btn"):
         with st.spinner("Fitting logistic model..."):
@@ -1215,6 +1450,9 @@ def render(year: int, gp: str):
                 cv_auc_val = logit.get("cv_auc")
                 m2.metric("CV AUC", round(cv_auc_val, 4) if cv_auc_val is not None else "n/a")
                 m3.metric("Podiums in data", logit["n_podiums"])
+                st.caption(
+                    "Binary target: podium vs non-podium. Current predictors are numeric race features such as grid position, stop count, average lap time, and average pit time when available."
+                )
 
                 coef_df = pd.DataFrame(logit["coefficients"])
                 fig_or = px.bar(

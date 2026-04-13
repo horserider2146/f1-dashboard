@@ -7,8 +7,10 @@ from fastapi.responses import JSONResponse
 from typing import Optional
 import json
 import math
+from pathlib import Path
 import numpy as np
 
+from config.settings import settings
 from data.fastf1_loader import load_session, get_lap_data, get_driver_info
 
 router = APIRouter(prefix="/stats", tags=["statistics"])
@@ -159,6 +161,23 @@ def _get_results(year: int, gp: str) -> list[dict]:
         return []
 
 
+def _get_cached_gps(year: int) -> list[str]:
+    """Return GP names available in the local FastF1 cache for a season."""
+    year_dir = Path(settings.fastf1_cache_dir) / str(year)
+    if not year_dir.exists():
+        return []
+
+    gps: list[str] = []
+    for child in sorted(year_dir.iterdir()):
+        if not child.is_dir():
+            continue
+        parts = child.name.split("_", 1)
+        if len(parts) != 2:
+            continue
+        gps.append(parts[1].replace("_", " "))
+    return gps
+
+
 # ── Unit Novel: Driver Consistency Index ──────────────────────────────────────
 
 @router.get("/{year}/{gp}/dci")
@@ -205,22 +224,54 @@ def bayes_win(year: int, gp: str):
     return _j(bayesian_win_probability(laps, results))
 
 
+@router.get("/{year}/{gp}/bayes-win-season")
+def bayes_win_season(year: int, gp: str):
+    from analytics.stats.inference import bayesian_win_probability
+    season_rows: list[dict] = []
+
+    try:
+        from data.ergast_client import get_all_results_for_season
+        season_results = get_all_results_for_season(year)
+        if season_results is not None and not season_results.empty:
+            season_rows = season_results.to_dict(orient="records")
+    except Exception:
+        season_rows = []
+
+    if not season_rows:
+        cached_rows: list[dict] = []
+        for cached_gp in _get_cached_gps(year):
+            cached_rows.extend(_get_results(year, cached_gp))
+        season_rows = cached_rows
+
+    return _j(bayesian_win_probability([], season_rows))
+
+
 # ── Unit 2 ─────────────────────────────────────────────────────────────────────
 
 @router.get("/{year}/{gp}/ttest")
 def ttest(year: int, gp: str,
           driver_a: str = Query(...),
-          driver_b: str = Query(...)):
+          driver_b: str = Query(...),
+          alternative: str = Query("two-sided", regex="^(two-sided|less|greater)$"),
+          alpha: float = Query(0.05, gt=0.0, lt=1.0)):
     from analytics.stats.inference import two_sample_ttest
     laps = _get_laps(year, gp)
-    result = two_sample_ttest(laps, driver_a.upper(), driver_b.upper())
+    result = two_sample_ttest(
+        laps,
+        driver_a.upper(),
+        driver_b.upper(),
+        alternative=alternative,
+        alpha=alpha,
+    )
     if "error" in result:
         raise HTTPException(400, result["error"])
     return _j(result)
 
 
 @router.get("/{year}/{gp}/ztest/{driver_id}")
-def ztest(year: int, gp: str, driver_id: str):
+def ztest(year: int, gp: str, driver_id: str,
+          alternative: str = Query("two-sided", regex="^(two-sided|less|greater)$"),
+          alpha: float = Query(0.05, gt=0.0, lt=1.0)):
     from analytics.stats.inference import z_test_pit_stop_time
     pit_stops = _get_pit_stops(year, gp)
     if not pit_stops or not any("pit_duration" in s and s["pit_duration"] is not None
@@ -229,7 +280,12 @@ def ztest(year: int, gp: str, driver_id: str):
             "available": False,
             "message": "Pit duration data cannot be estimated for this race.",
         })
-    result = z_test_pit_stop_time(pit_stops, driver_id.upper())
+    result = z_test_pit_stop_time(
+        pit_stops,
+        driver_id.upper(),
+        alternative=alternative,
+        alpha=alpha,
+    )
     if not result:
         return _j({"available": False, "message": "Not enough pit stop data."})
     if "error" in result:
@@ -264,24 +320,26 @@ def anova_two_way(year: int, gp: str):
 # ── Units 4–5 ──────────────────────────────────────────────────────────────────
 
 @router.get("/{year}/{gp}/regression/ols")
-def regression_ols(year: int, gp: str):
+def regression_ols(year: int, gp: str,
+                   target: str = Query("position", regex="^(position|avg_lap_time)$")):
     from analytics.stats.regression import ols_regression
     laps = _get_laps(year, gp)
     pit_stops = _get_pit_stops(year, gp)
     results = _get_results(year, gp)
-    result = ols_regression(laps, pit_stops, results)
+    result = ols_regression(laps, pit_stops, results, target=target)
     if "error" in result:
         raise HTTPException(400, result["error"])
     return _j(result)
 
 
 @router.get("/{year}/{gp}/regression/regularised")
-def regression_regularised(year: int, gp: str):
+def regression_regularised(year: int, gp: str,
+                          target: str = Query("position", regex="^(position|avg_lap_time)$")):
     from analytics.stats.regression import lasso_ridge_regression
     laps = _get_laps(year, gp)
     pit_stops = _get_pit_stops(year, gp)
     results = _get_results(year, gp)
-    result = lasso_ridge_regression(laps, pit_stops, results)
+    result = lasso_ridge_regression(laps, pit_stops, results, target=target)
     if "error" in result:
         raise HTTPException(400, result["error"])
     return _j(result)

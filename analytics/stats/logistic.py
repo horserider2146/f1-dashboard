@@ -1,6 +1,7 @@
 """
 Unit 6 — Logistic Regression.
-P(podium) from grid position, pit strategy, team, compound.
+P(podium) from numeric race features such as grid position, stop count,
+average lap time, and average pit time.
 Odds ratios, ROC/AUC curve. Compared against XGBoost predictor.
 """
 import numpy as np
@@ -48,7 +49,8 @@ def logistic_regression(laps: list[dict],
                          pit_stops: list[dict],
                          results: list[dict]) -> dict:
     """
-    Logistic regression: P(podium) ~ grid_position + num_stops + avg_lap_time.
+    Logistic regression: P(podium) ~ grid_position + num_stops +
+    avg_lap_time (+ avg_pit_time when available).
     Returns coefficients, odds ratios, ROC/AUC data.
     """
     from sklearn.linear_model import LogisticRegression
